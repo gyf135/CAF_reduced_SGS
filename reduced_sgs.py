@@ -1,7 +1,15 @@
+"""
+========================================================================
+PYTHON SCRIPT ACCOMPANYING:
 
-##########################
-# S U B R O U T I N E S  #
-##########################
+W.EDELING, D. CROMMELIN, 
+"DERIVING REDUCED SUBGRID SCAKLE MODELS FROM DATA"
+SUBMITTED TO COMPUTERS & FLUIDS, 2019.
+========================================================================
+"""
+######################
+# SOLVER SUBROUTINES #
+######################
 
 #pseudo-spectral technique to solve for Fourier coefs of Jacobian
 def compute_VgradW_hat(w_hat_n, P):
@@ -73,6 +81,22 @@ def get_P_full(cutoff):
 
     return P
 
+#return the fourier coefs of the stream function
+def get_psi_hat(w_hat_n):
+
+    psi_hat_n = w_hat_n/k_squared_no_zero
+    psi_hat_n[0,0] = 0.0
+
+    return psi_hat_n
+
+##########################
+# END SOLVER SUBROUTINES #
+##########################
+
+#############################
+# MISCELLANEOUS SUBROUTINES #
+#############################
+
 #store samples in hierarchical data format, when sample size become very large
 def store_samples_hdf5():
   
@@ -93,65 +117,47 @@ def store_samples_hdf5():
     h5f.close()    
 
 def draw():
-#    plt.subplot(121, xlabel=r'$x$', ylabel=r'$y$', title=r'$\omega^{\mathcal{R}}$')
-#    plt.contourf(x, y, w_n_HF, 100)
-#    plt.colorbar()
-#    plt.subplot(122, xlabel=r'$x$', ylabel=r'$y$', title=r'$\mathrm{eddy\;forcing}\;\bar{r}$')
-#    plt.contourf(x, y, EF, 100)
-#    plt.colorbar()
-#    plt.tight_layout()
+    
+    """
+    simple plotting routine
+    """
+    
+    plt.clf()
 
-    plt.subplot(122, xscale='log', yscale='log')
-    plt.plot(bins+1, E_spec_HF, '--')
-    plt.plot(bins+1, E_spec_LF)
-    plt.plot([Ncutoff_LF + 1, Ncutoff_LF + 1], [10, 0], 'lightgray')
-    plt.plot([np.sqrt(2)*Ncutoff_LF + 1, np.sqrt(2)*Ncutoff_LF + 1], [10, 0], 'lightgray')
+    plt.subplot(121, title=r'$Q_1$', xlabel=r'$t\;[day]$')
+    plt.plot(np.array(T)/day, plot_dict_HF[0], 'o', label=r'Reference')
+    plt.plot(np.array(T)/day, plot_dict_LF[0], label='Reduced')
+    plt.legend(loc=0)
+
+    plt.subplot(122, title=r'$Q_2$', xlabel=r'$t\;[day]$')
+    plt.plot(np.array(T)/day, plot_dict_HF[1], 'o')
+    plt.plot(np.array(T)/day, plot_dict_LF[1])
+    
+    plt.pause(0.05)
+    
+#plot instantaneous energy spectrum    
 #    plt.subplot(122, xscale='log', yscale='log')
-#    plt.plot(bins+1, Z_spec_HF, '--')
-#    plt.plot(bins+1, Z_spec_LF)
+#    plt.plot(bins+1, E_spec_HF, '--')
+#    plt.plot(bins+1, E_spec_LF)
 #    plt.plot([Ncutoff_LF + 1, Ncutoff_LF + 1], [10, 0], 'lightgray')
-#    plt.plot([np.sqrt(2)*Ncutoff_LF + 1.5, np.sqrt(2)*Ncutoff_LF + 1.5], [10, 0], 'lightgray')
+#    plt.plot([np.sqrt(2)*Ncutoff_LF + 1, np.sqrt(2)*Ncutoff_LF + 1], [10, 0], 'lightgray')
 
-    plt.subplot(121, title=r'$E$', xlabel=r'$t\;[day]$')
-    plt.plot(np.array(T)/day, E_HF, 'o')
-    plt.plot(np.array(T)/day, E_LF)
+    plt.tight_layout()
 
-#    plt.subplot(122, title=r'$Z$', xlabel=r'$t\;[day]$')
-#    plt.plot(np.array(T)/day, Z_HF, 'o')
-#    plt.plot(np.array(T)/day, Z_LF)
-#    
-#    plt.subplot(133, title=r'$W3$', xlabel=r'$t\;[day]$')
-#    plt.plot(np.array(T)/day, W3_HF, 'o')
-#    plt.plot(np.array(T)/day, W3_LF)
-#    
-#    plt.subplot(133, title=r'$\tau$', xlabel=r'$t\;[day]$')
-#    plt.plot(np.array(T)/day, TAU1)
-#    plt.plot(np.array(T)/day, TAU2)
-#    plt.plot(np.array(T)/day, TAU3)
-#    plt.subplot(133, title=r'$\bar{r}$', xlabel=r'$t\;[day]$')
-#    plt.contourf(x, y, EF, 100)
-#    plt.colorbar()
-#    plt.subplot(133, xlabel=r'$t\;[day]$')
-#    plt.plot(np.array(T)/day, TEST)
-#    
-#    plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-#    plt.tight_layout()
-
-#return the fourier coefs of the stream function
-def get_psi_hat(w_hat_n):
-
-    psi_hat_n = w_hat_n/k_squared_no_zero
-    psi_hat_n[0,0] = 0.0
-
-    return psi_hat_n
-
-
-#######################
-# REDUCED SUBROUTINES #
-#######################
+#################################
+# END MISCELLANEOUS SUBROUTINES #
+#################################
+    
+###########################
+# REDUCED SGS SUBROUTINES #
+###########################
 
 def reduced_r(V_hat, dQ):
+    """
+    Compute the reduced SGS term
+    """
     
+    #compute the T_ij basis functions
     T_hat = np.zeros([N_Q, N_Q, N,int(N/2+1)]) + 0.0j
     
     for i in range(N_Q):
@@ -165,86 +171,106 @@ def reduced_r(V_hat, dQ):
             T_hat[i, idx] = V_hat[j]
             idx += 1
         
+    #compute the coefficients c_ij for P_i
     c_ij = compute_cij(T_hat, V_hat)
 
     EF_hat = 0.0
 
+    #loop over all QoI
     for i in range(N_Q):
+        #compute the fourier coefs of the P_i
         P_hat_i = T_hat[i, 0]
-        
         for j in range(0, N_Q-1):
             P_hat_i -= c_ij[i, j]*T_hat[i, j+1]
     
+        #(V_i, P_i) integral
         src_i = compute_int(V_hat[i], P_hat_i)
+        
+        #compute tau_i = Delta Q_i/ (V_i, P_i)
         tau_i = dQ[i]/src_i        
 
+        #compute reduced soure term
         EF_hat -= tau_i*P_hat_i
     
     return EF_hat
 
 def compute_cij(T_hat, V_hat):
+    """
+    compute the coefficients c_ij of P_i = T_{i,1} - c_{i,2}*T_{i,2}, - ...
+    """
 
-    n_scalar = T_hat.shape[0]
-    c_ij = np.zeros([n_scalar, n_scalar-1])
+    c_ij = np.zeros([N_Q, N_Q-1])
 
-    for i in range(n_scalar):
-        A = np.zeros([n_scalar-1, n_scalar-1])
-        b = np.zeros(n_scalar-1)
+    for i in range(N_Q):
+        A = np.zeros([N_Q-1, N_Q-1])
+        b = np.zeros(N_Q-1)
 
-        k = np.delete(np.arange(n_scalar), i)
+        k = np.delete(np.arange(N_Q), i)
 
-        for j1 in range(n_scalar-1):
-            for j2 in range(n_scalar-1):
+        for j1 in range(N_Q-1):
+            for j2 in range(N_Q-1):
                 integral = compute_int(V_hat[k[j1]], T_hat[i, j2+1])
                 A[j1, j2] = integral
 
-        for j1 in range(n_scalar-1):
+        for j1 in range(N_Q-1):
             integral = compute_int(V_hat[k[j1]], T_hat[i, 0])
             b[j1] = integral
 
-        if n_scalar == 2:
+        if N_Q == 2:
             c_ij[i,:] = b/A
         else:
             c_ij[i,:] = np.linalg.solve(A, b)
             
     return c_ij
 
-###########################
-# END REDUCED SUBROUTINES #
-###########################
-
 def get_qoi(w_hat_n, target):
 
+    """
+    compute the Quantity of Interest defined by the string target
+    """
+    
     w_n = np.fft.irfft2(w_hat_n)
     
-    if target == 'dE':
+    #energy (psi, omega)/2
+    if target == 'e':
         psi_hat_n = w_hat_n/k_squared_no_zero
         psi_hat_n[0,0] = 0.0
         psi_n = np.fft.irfft2(psi_hat_n)
         e_n = -0.5*psi_n*w_n
         return simps(simps(e_n, axis), axis)/(2*np.pi)**2
-    elif target == 'dZ':
+    #enstrophy (omega, omega)/2
+    elif target == 'z':
         z_n = 0.5*w_n**2
         return simps(simps(z_n, axis), axis)/(2*np.pi)**2
-    elif target == 'dW1':
+    #average vorticity (1, omega)
+    elif target == 'w1':
         return simps(simps(w_n, axis), axis)/(2*np.pi)**2
-    elif target == 'dW3':
+    #higher moment vorticity (omega^2, omega)/3
+    elif target == 'w3':
         w3_n = w_n**3/3.0
         return simps(simps(w3_n, axis), axis)/(2*np.pi)**2
     else:
-        print('UNKNOWN QUANTITY OF INTEREST')
+        print(target, 'IS AN UNKNOWN QUANTITY OF INTEREST')
         import sys; sys.exit()
     
 def compute_int(X1_hat, X2_hat):
+    
+    """
+    Compute integral using Simpsons rule
+    """
     
     X1 = np.fft.irfft2(X1_hat)
     X2 = np.fft.irfft2(X2_hat)
     
     return simps(simps(X1*X2, axis), axis)/(2*np.pi)**2
 
-########################
-# SPECTRUM SUBROUTINES #
-########################
+###############################
+# END REDUCED SGS SUBROUTINES #
+###############################
+
+#########################
+## SPECTRUM SUBROUTINES #
+#########################
 
 def freq_map():
     """
@@ -318,9 +344,18 @@ plt.rcParams['image.cmap'] = 'seismic'
 
 HOME = os.path.abspath(os.path.dirname(__file__))
 
-#number of gridpoints in 1D
+#number of gridpoints in 1D for reference model (HF model)
 I = 8
 N = 2**I
+
+#number of gridpoints in 1D for low resolution model, denoted by _LF
+N_LF = 2**(I-2)
+#IMPORTANT: this is only used to computed the cutoff freq N_cutoff_LF below
+#The LF model is still computed on the high-resolution grid. This is
+#convenient implementationwise, but inefficient in terms of computational
+#cost. This script only serves as a proof of concept, and can certainly
+#be improved in terms of bringing down the runtime. The LF and HF model
+#are executed at the same time here.
 
 #2D grid
 h = 2*np.pi/N
@@ -328,7 +363,7 @@ axis = h*np.arange(1, N+1)
 axis = np.linspace(0, 2.0*np.pi, N)
 [x , y] = np.meshgrid(axis , axis)
 
-#frequencies
+#frequencies of rfft2
 k = np.fft.fftfreq(N)*N
 kx = np.zeros([N, int(N/2+1)]) + 0.0j
 ky = np.zeros([N, int(N/2+1)]) + 0.0j
@@ -338,6 +373,7 @@ for i in range(N):
         kx[i, j] = 1j*k[j]
         ky[i, j] = 1j*k[i]
 
+#frequencies of fft2 (only used to compute the spectra)
 k_squared = kx**2 + ky**2
 k_squared_no_zero = np.copy(k_squared)
 k_squared_no_zero[0,0] = 1.0
@@ -355,21 +391,24 @@ k_squared_no_zero_full = np.copy(k_squared_full)
 k_squared_no_zero_full[0,0] = 1.0
 
 #cutoff in pseudospectral method
-Ncutoff = np.int(N/3)
-Ncutoff_LF = np.int(2**(I-2)/3)
+Ncutoff = np.int(N/3)           #reference cutoff
+Ncutoff_LF = np.int(N_LF/3)     #cutoff of low resolution (LF) model
 
 #spectral filter
 P = get_P(Ncutoff)
 P_LF = get_P(Ncutoff_LF)
 P_U = P - P_LF
 
-#spectral filter for the full FFT2 (used in compute_E_Z)
+#spectral filter for the full FFT2 
 P_full = get_P_full(Ncutoff)
 P_LF_full = get_P_full(Ncutoff_LF)
 
 #read flags from input file
 fpath = sys.argv[1]
 fp = open(fpath, 'r')
+
+#print the desription of the input file
+print(fp.readline())
 
 binnumbers, bins = freq_map()
 N_bins = bins.size
@@ -425,7 +464,7 @@ nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
 
 mu = 1.0/(day*decay_time_mu)
 
-#start, end time, end time of data (training period), time step
+#start, end time, end time of, time step
 dt = 0.01
 t = 0.0*day
 t_end = t + 10*365*day
@@ -435,7 +474,7 @@ n_steps = np.int(np.round((t_end-t)/dt))
 # USER KEYS #
 #############
 
-#framerate of storing data, plotting results, computing correlations (1 = every integration time step)
+#framerate of storing data, plotting results (1 = every integration time step)
 store_frame_rate = np.floor(1.0*day/dt).astype('int')
 #store_frame_rate = 1
 plot_frame_rate = np.floor(1.0*day/dt).astype('int')
@@ -516,13 +555,14 @@ norm_factor_LF = 1.0/(3.0/(2.0*dt) - nu_LF*k_squared + mu)  #for Low-Fidelity (L
 #some counters
 j = 0; j2 = 0; idx = 0;
 
-T = []; E_LF = []; Z_LF = []; E_HF = []; Z_HF = []; W3_HF = []; W3_LF = []
-W1_HF = []; W1_LF = []
-TAU1 = []; TAU2 = []; TAU3 = []
-TEST = []
-
 if plot == True:
     fig = plt.figure(figsize=[8, 4])
+    plot_dict_LF = {}
+    plot_dict_HF = {}
+    T = []
+    for i in range(N_Q):
+        plot_dict_LF[i] = []
+        plot_dict_HF[i] = []
 
 #time loop
 for n in range(n_steps):
@@ -533,10 +573,8 @@ for n in range(n_steps):
         w_hat_np1_HF, VgradW_hat_n_HF = get_w_hat_np1(w_hat_n_HF, w_hat_nm1_HF, VgradW_hat_nm1_HF, P, norm_factor)
         
         #exact eddy forcing
-#        EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF 
- 
-#    e_n_LF, w1_n_LF, z_n_LF, w3_n_LF = get_qoi(P_i[0]*w_hat_n_LF)
-   
+        EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF 
+  
     #exact orthogonal pattern surrogate
     if eddy_forcing_type == 'tau_ortho':
         psi_hat_n_LF = get_psi_hat(w_hat_n_LF)
@@ -578,42 +616,31 @@ for n in range(n_steps):
     if j == plot_frame_rate and plot == True:
         j = 0
 
-        e_n_HF = get_qoi(P_LF*w_hat_n_HF, 'dE')
-        e_n_LF = get_qoi(P_LF*w_hat_n_LF, 'dE')
-        z_n_HF = get_qoi(P_LF*w_hat_n_HF, 'dZ')
-        z_n_LF = get_qoi(P_LF*w_hat_n_LF, 'dZ')
+        for i in range(N_Q):
+            Q_i_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
+            Q_i_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
+        
+            plot_dict_LF[i].append(Q_i_LF)
+            plot_dict_HF[i].append(Q_i_HF)
         
         T.append(t)
-        E_LF.append(e_n_LF); Z_LF.append(z_n_LF)
-        E_HF.append(e_n_HF); Z_HF.append(z_n_HF)
-#        W3_HF.append(_w3_n_HF); W3_LF.append(_w3_n_LF)
-#        W1_HF.append(_w1_n_HF); W1_LF.append(_w1_n_LF)
-
-        print('e_n_HF: %.4e' % e_n_HF, 'z_n_HF: %.4e' % z_n_HF)
-        print('e_n_LF: %.4e' % e_n_LF, 'z_n_LF: %.4e' % z_n_LF)
-
-#        print('e_n_HF: %.4e' % _e_n_HF, 'w1_n_HF: %.4e' % _w1_n_HF,
-#              'z_n_HF: %.4e' % _z_n_HF, 'w3_n_HF: %.4e' % _w3_n_HF)
-#        print('e_n_LF: %.4e' % _e_n_LF, 'w1_n_LF: %.4e' % _w1_n_LF,
-#              'z_n_LF: %.4e' % _z_n_LF, 'w3_n_LF: %.4e' % _w3_n_LF)
         
         E_spec_HF, Z_spec_HF = spectrum(w_hat_n_HF, P_full)
         E_spec_LF, Z_spec_LF = spectrum(w_hat_n_LF, P_LF_full)
         
-        drawnow(draw)
+#        drawnow(draw)
+        draw()
         
     #store samples to dict
     if j2 == store_frame_rate and store == True:
         j2 = 0
 
-        e_n_HF = get_qoi(P_LF*w_hat_n_HF, 'dE')
-        e_n_LF = get_qoi(P_LF*w_hat_n_LF, 'dE')
-        z_n_HF = get_qoi(P_LF*w_hat_n_HF, 'dZ')
-        z_n_LF = get_qoi(P_LF*w_hat_n_LF, 'dZ')
-
-        if np.mod(n, np.round(day/dt)) == 0:
-            print('n = ', n, ' of ', n_steps)
-
+        #if targets[i] = 'e', this will generate variables e_n_LF and e_Z_n_LF
+        #to be stored in samples
+        for i in range(N_Q):
+            vars()[targets[i] + '_n_LF'] = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
+            vars()[targets[i] + '_n_HF'] = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
+        
         for qoi in QoI:
             samples[qoi][idx] = eval(qoi)
 
