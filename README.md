@@ -25,3 +25,12 @@ The main file ```reduced_sgs.py``` contains the entire script. As input it takes
 ```
 python3 ./inputs/EZ_track.json
 ```
+
+in order to execute a simulation which tracks the reference energy and enstrophy for a simulated time of 10 years. The command
+
+```
+python3 ./inputs/E_TK_E_track.json
+```
+
+launches a simulation where the full energy and just the energy close to the cutoff scale are tracked seperately.
+
