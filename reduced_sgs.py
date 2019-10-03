@@ -335,7 +335,6 @@ import os
 import h5py
 from scipy.integrate import simps
 import sys
-from drawnow import drawnow
 from scipy import stats
 import json
 
