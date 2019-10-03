@@ -1,0 +1,4 @@
+{"sim_ID": "gen_tau_P_k_equal_nu_4", "state_store": false, "restart": false, "store": true, "plot": true, "compute_ref": true, "eddy_forcing_type": "tau_ortho"}
+2
+{"target": "dE", "V_i": "-psi_hat_n_LF", "k_min": 0, "k_max": 21}
+{"target": "dE", "V_i": "-psi_hat_n_LF", "k_min": 16, "k_max": 21}
