@@ -170,9 +170,10 @@ def reduced_r(V_hat, dQ):
         for j in J:
             T_hat[i, idx] = V_hat[j]
             idx += 1
-        
+
     #compute the coefficients c_ij for P_i
-    c_ij = compute_cij(T_hat, V_hat)
+#    c_ij = compute_cij(T_hat, V_hat)
+    c_ij = compute_cij_using_V_hat(V_hat)
 
     EF_hat = 0.0
 
@@ -193,6 +194,39 @@ def reduced_r(V_hat, dQ):
         EF_hat -= tau_i*P_hat_i
     
     return EF_hat
+
+def compute_cij_using_V_hat(V_hat):
+    """
+    compute the coefficients c_ij of P_i = T_{i,1} - c_{i,2}*T_{i,2}, - ...
+    """
+
+    c_ij = np.zeros([N_Q, N_Q-1])
+
+    integral = inner_prods(V_hat)
+
+    for i in range(N_Q):
+        A = np.zeros([N_Q-1, N_Q-1])
+        b = np.zeros(N_Q-1)
+
+        k = np.delete(np.arange(N_Q), i)
+
+        for j1 in range(N_Q-1):
+            for j2 in range(j1, N_Q-1):
+                A[j1, j2] = integral[k[j1], k[j2]]
+                if j1 != j2:
+                    A[j2, j1] = A[j1, j2]
+
+        for j1 in range(N_Q-1):
+#            integral = compute_int(V_hat[k[j1]], T_hat[i, 0])
+            b[j1] = integral[i, k[j1]]
+
+        if N_Q == 2:
+            c_ij[i,:] = b/A
+        else:
+            c_ij[i,:] = np.linalg.solve(A, b)
+            
+    return c_ij
+
 
 def compute_cij(T_hat, V_hat):
     """
@@ -252,6 +286,23 @@ def get_qoi(w_hat_n, target):
     else:
         print(target, 'IS AN UNKNOWN QUANTITY OF INTEREST')
         import sys; sys.exit()
+    
+def inner_prods(V_hat):
+
+    """
+    Compute all the inner products (V_i, T_{i,j})
+    """
+    
+    inner = np.zeros([N_Q, N_Q])
+    
+    for i1 in range(N_Q):
+        for i2 in range(i1, N_Q):
+            inner[i1, i2] = compute_int(V_hat[i1], V_hat[i2])
+            
+            if i1 != i2:
+                inner[i2, i1] = inner[i1, i2]
+    
+    return inner
     
 def compute_int(X1_hat, X2_hat):
     
@@ -337,6 +388,7 @@ from scipy.integrate import simps
 import sys
 from scipy import stats
 import json
+import easysurrogate as es
 
 plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
@@ -442,6 +494,10 @@ print('*********************')
 
 dW3_calc = np.in1d('dW3', targets)
 
+if eddy_forcing_type == 'tau_ortho_ann':
+    #load the SGS neural network
+    surrogate = es.methods.ANN(X = [], y = [], load = True)
+    
 #map from the rfft2 coefficient indices to fft2 coefficient indices
 #Use: see compute_E_Z subroutine
 shift = np.zeros(N).astype('int')
@@ -575,7 +631,7 @@ for n in range(n_steps):
         EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF 
   
     #exact orthogonal pattern surrogate
-    if eddy_forcing_type == 'tau_ortho':
+    if eddy_forcing_type == 'tau_ortho' or eddy_forcing_type == 'tau_ortho_ann':
         psi_hat_n_LF = get_psi_hat(w_hat_n_LF)
         w_n_LF = np.fft.irfft2(w_hat_n_LF)
         
@@ -587,9 +643,13 @@ for n in range(n_steps):
         dQ = []
         for i in range(N_Q):
             V_hat[i] = P_i[i]*eval(V[i])
-            Q_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
-            Q_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
-            dQ.append(Q_HF - Q_LF)
+            
+            if eddy_forcing_type == 'tau_ortho':
+                Q_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
+                Q_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
+                dQ.append(Q_HF - Q_LF)
+#            elif eddy_forcing_type == 'tau_ortho_ann':
+                
 
         EF_hat = reduced_r(V_hat, dQ)        
 
