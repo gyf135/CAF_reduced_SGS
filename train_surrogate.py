@@ -1,6 +1,6 @@
 def animate(s):
 
-    I = 1
+    I = 2
     for i in range(I):
         lines[2*i].set_data(dom, kde[s, :, i]/np.max(kde[s, :, i]))
         lines[2*i + 1].set_data(y_train[s, i], 0.0)
@@ -31,8 +31,8 @@ file_path = filedialog.askopenfilename()
 h5f = h5py.File(file_path, 'r')
 print(h5f.keys())
 
-feats = ['e_n_LF', 'src1', 'c_12']
-targets = ['dE'] 
+feats = ['e_n_LF', 'z_n_LF', 'src1', 'src2', 'c_12', 'c_22']
+targets = ['dE', 'dZ'] 
 
 n_samples = h5f[feats[0]][:].size
 
@@ -71,7 +71,7 @@ surrogate = es.methods.ANN(X=X_train, y=y_train, n_layers=3, n_neurons=256,
                            activation='relu', activation_out='linear', n_softmax=n_softmax,
                            batch_size=512,
                            lamb=0.0, decay_step=10**4, decay_rate=0.9, alpha=0.001,
-                           standardize_X=False, standardize_y=False, save=False,
+                           standardize_X=False, standardize_y=False, save=True,
                            kernel_means = mu, kernel_stds = sigma)
 surrogate.train(10000, store_loss = True)
 
@@ -104,10 +104,12 @@ if make_movie:
     plt.tight_layout()
  
     lines = []
+    linemarkers = ['-b', '-r']
+    symbols = ['bo', 'ro']
     for i in range(2):
-        lobj = ax.plot([], [], '-')[0]
+        lobj = ax.plot([], [], linemarkers[i])[0]
         lines.append(lobj)
-        lobj = ax.plot([], [], 'o')[0]
+        lobj = ax.plot([], [], symbols[i])[0]
         lines.append(lobj)
     
     # Set up formatting for the movie files
