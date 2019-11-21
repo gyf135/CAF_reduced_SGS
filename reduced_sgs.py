@@ -173,9 +173,14 @@ def reduced_r(V_hat, dQ):
 
     #compute the coefficients c_ij for P_i
 #    c_ij = compute_cij(T_hat, V_hat)
-    c_ij = compute_cij_using_V_hat(V_hat)
+    
+    inner_prods = inner_products(V_hat)
+    c_ij = compute_cij_using_V_hat(V_hat, inner_prods)
 
     EF_hat = 0.0
+
+    src_Q = np.zeros(N_Q)
+    tau = np.zeros(N_Q)
 
     #loop over all QoI
     for i in range(N_Q):
@@ -185,25 +190,26 @@ def reduced_r(V_hat, dQ):
             P_hat_i -= c_ij[i, j]*T_hat[i, j+1]
     
         #(V_i, P_i) integral
-        src_i = compute_int(V_hat[i], P_hat_i)
+        src_Qi = compute_int(V_hat[i], P_hat_i)
         
         #compute tau_i = Delta Q_i/ (V_i, P_i)
-        tau_i = dQ[i]/src_i        
+        tau_i = dQ[i]/src_Qi        
+
+        src_Q[i] = src_Qi
+        tau[i] = tau_i
 
         #compute reduced soure term
         EF_hat -= tau_i*P_hat_i
     
-    return EF_hat
+    return EF_hat, c_ij, np.triu(inner_prods), src_Q, tau
 
-def compute_cij_using_V_hat(V_hat):
+def compute_cij_using_V_hat(V_hat, inner_prods):
     """
     compute the coefficients c_ij of P_i = T_{i,1} - c_{i,2}*T_{i,2}, - ...
     """
 
     c_ij = np.zeros([N_Q, N_Q-1])
-
-    integral = inner_prods(V_hat)
-
+    
     for i in range(N_Q):
         A = np.zeros([N_Q-1, N_Q-1])
         b = np.zeros(N_Q-1)
@@ -212,13 +218,13 @@ def compute_cij_using_V_hat(V_hat):
 
         for j1 in range(N_Q-1):
             for j2 in range(j1, N_Q-1):
-                A[j1, j2] = integral[k[j1], k[j2]]
+                A[j1, j2] = inner_prods[k[j1], k[j2]]
                 if j1 != j2:
                     A[j2, j1] = A[j1, j2]
 
         for j1 in range(N_Q-1):
 #            integral = compute_int(V_hat[k[j1]], T_hat[i, 0])
-            b[j1] = integral[i, k[j1]]
+            b[j1] = inner_prods[i, k[j1]]
 
         if N_Q == 2:
             c_ij[i,:] = b/A
@@ -287,7 +293,7 @@ def get_qoi(w_hat_n, target):
         print(target, 'IS AN UNKNOWN QUANTITY OF INTEREST')
         import sys; sys.exit()
     
-def inner_prods(V_hat):
+def inner_products(V_hat):
 
     """
     Compute all the inner products (V_i, T_{i,j})
@@ -389,6 +395,8 @@ import sys
 from scipy import stats
 import json
 import easysurrogate as es
+from tkinter import filedialog
+import tkinter as tk
 
 plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
@@ -521,8 +529,8 @@ mu = 1.0/(day*decay_time_mu)
 
 #start, end time, end time of, time step
 dt = 0.01
-t = 0.0*day
-t_end = t + 10.0*day
+t = 500.0*day
+t_end = t + 10.0*365*day
 n_steps = np.int(np.round((t_end-t)/dt))
 
 #############
@@ -530,8 +538,8 @@ n_steps = np.int(np.round((t_end-t)/dt))
 #############
 
 #framerate of storing data, plotting results (1 = every integration time step)
-store_frame_rate = np.floor(1.0*day/dt).astype('int')
-#store_frame_rate = 1
+#store_frame_rate = np.floor(1.0*day/dt).astype('int')
+store_frame_rate = 1
 plot_frame_rate = np.floor(1.0*day/dt).astype('int')
 #length of data array
 S = np.floor(n_steps/store_frame_rate).astype('int')
@@ -543,7 +551,8 @@ store_ID = sim_ID
 ###############################
 
 #TRAINING DATA SET
-QoI = ['w_hat_n_LF', 'w_hat_n_HF', 'z_n_HF', 'e_n_HF', 'z_n_LF', 'e_n_LF']
+QoI = ['z_n_HF', 'e_n_HF', 'z_n_LF', 'e_n_LF', 'dQ', 'c_ij', 'inner_prods',
+       'src_Q', 'tau']
 Q = len(QoI)
 
 #allocate memory
@@ -560,7 +569,8 @@ if store == True:
             samples[QoI[q]] = np.zeros([S, N, int(N/2+1)]) + 0.0j
         #a scalar
         else:
-            samples[QoI[q]] = np.zeros(S)
+#            samples[QoI[q]] = np.zeros(S)
+            samples[QoI[q]] = []
 
 #forcing term
 F = 2**1.5*np.cos(5*x)*np.cos(5*y);
@@ -573,7 +583,16 @@ V_hat_w1 = P_LF*np.fft.rfft2(np.ones([N,N]))
 if restart == True:
     
     fname = HOME + '/restart/' + sim_ID + '_t_' + str(np.around(t/day,1)) + '.hdf5'
-    
+
+    #if fname does not exist, select restart file via GUI
+    if os.path.exists(fname) == False:
+        root = tk.Tk()
+        root.withdraw()
+        fname = filedialog.askopenfilename(initialdir = HOME + '/restart',
+                                           title="Open restart file", 
+                                           filetypes=(('HDF5 files', '*.hdf5'), 
+                                                      ('All files', '*.*')))
+        
     #create HDF5 file
     h5f = h5py.File(fname, 'r')
     
@@ -619,8 +638,18 @@ if plot == True:
         plot_dict_LF[i] = []
         plot_dict_HF[i] = []
 
+print('*********************')
+print('Solving forced dissipative vorticity equations')
+print('Grid = ', N, 'x', N)
+print('t_begin = ', t/day, 'days')
+print('t_end = ', t_end/day, 'days')
+print('*********************')
+
 #time loop
 for n in range(n_steps):
+    
+    if np.mod(n, np.int(day/dt)) == 0:
+        print('n =', n, 'of', n_steps)
 
     if compute_ref == True:
         
@@ -649,9 +678,8 @@ for n in range(n_steps):
                 Q_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
                 dQ.append(Q_HF - Q_LF)
 #            elif eddy_forcing_type == 'tau_ortho_ann':
-                
 
-        EF_hat = reduced_r(V_hat, dQ)        
+        EF_hat, c_ij, inner_prods, src_Q, tau = reduced_r(V_hat, dQ)        
 
     #unparameterized solution
     elif eddy_forcing_type == 'unparam':
@@ -687,7 +715,6 @@ for n in range(n_steps):
         E_spec_HF, Z_spec_HF = spectrum(w_hat_n_HF, P_full)
         E_spec_LF, Z_spec_LF = spectrum(w_hat_n_LF, P_LF_full)
         
-#        drawnow(draw)
         draw()
         
     #store samples to dict
@@ -701,7 +728,8 @@ for n in range(n_steps):
             vars()[targets[i] + '_n_HF'] = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
         
         for qoi in QoI:
-            samples[qoi][idx] = eval(qoi)
+#            samples[qoi][idx] = eval(qoi)
+            samples[qoi].append(eval(qoi))
 
         idx += 1  
 

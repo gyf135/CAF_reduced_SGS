@@ -1,5 +1,5 @@
-Input file for tracking the value of E and Z
-{"sim_ID": "EZ_track", "state_store": false, "restart": false, "store": true, "plot": true, "compute_ref": true, "eddy_forcing_type": "tau_ortho"}
+Input file tracking 2 QoI
+{"sim_ID": "EZ_track", "state_store": true, "restart": true, "store": true, "plot": false, "compute_ref": true, "eddy_forcing_type": "tau_ortho"}
 2
 {"target": "e", "V_i": "-psi_hat_n_LF", "k_min": 0, "k_max": 21}
 {"target": "z", "V_i": "w_hat_n_LF", "k_min": 0, "k_max": 21}
