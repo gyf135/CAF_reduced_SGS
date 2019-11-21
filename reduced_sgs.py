@@ -522,7 +522,7 @@ mu = 1.0/(day*decay_time_mu)
 #start, end time, end time of, time step
 dt = 0.01
 t = 0.0*day
-t_end = t + 500.0*day
+t_end = t + 10.0*day
 n_steps = np.int(np.round((t_end-t)/dt))
 
 #############
