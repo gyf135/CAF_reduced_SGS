@@ -31,11 +31,40 @@ file_path = filedialog.askopenfilename()
 h5f = h5py.File(file_path, 'r')
 print(h5f.keys())
 
-feats = ['e_n_LF', 'z_n_LF', 'src1', 'src2', 'c_12', 'c_22']
-targets = ['dE', 'dZ'] 
+#names of features in hdf5 file to include
+feat_names = ['inner_prods', 'c_ij']
 
-n_samples = h5f[feats[0]][:].size
+#the number of samples, featutes must have shape n_samples, shape_sample
+n_samples = h5f[feat_names[0]].shape[0]
 
+#if symmetric is True (and the sample is a square array)
+#only the upper triangular part will be used a feature
+symmetric = [True, False]
+
+#temp array to store the features
+feats = []
+
+for i in range(len(feat_names)):
+    #convert h5f file to np array    
+    feat = h5f[feat_names[i]][()]
+    
+    #if symmetric only take upper triangular part
+    if symmetric[i]:
+        idx0, idx1 = np.triu_indices(feat.shape[1])
+        feat = feat[:, idx0, idx1]
+        
+    #the number of data points per sample = product of sample shape
+    n_in  = int(np.prod(feat.shape[1:]))
+    
+    #add feature to list in shape n_samples x n_in
+    feats.append(feat.reshape([n_samples, n_in]))
+    
+#concatenate all features into a single of shape n_samples x n_features
+X = np.concatenate(feats, axis=1)
+
+targets = ['dQ'] 
+                 
+"""
 X = np.zeros([n_samples, len(feats)])
 y = np.zeros([n_samples, len(targets)])
 
@@ -46,6 +75,7 @@ for i in range(len(targets)):
     y[:, i] = h5f[targets[i]]
 
 feat_eng = es.methods.Feature_Engineering(X, y)
+
 X, y = feat_eng.standardize_data()
 lags = [[1, 30]]
 X_train, y_train = feat_eng.lag_training_data(X, lags = lags)
@@ -117,3 +147,4 @@ if make_movie:
     Writer = writers['ffmpeg']
     writer = Writer(fps=15, bitrate=1800)
     anim.save('demo.mp4', writer = writer)
+"""

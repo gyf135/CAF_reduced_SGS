@@ -269,6 +269,40 @@ def get_qoi(w_hat_n, target):
     compute the Quantity of Interest defined by the string target
     """
     
+    w_n = np.fft.irfft2(w_hat_n).flatten()
+    
+    #energy (psi, omega)/2
+    if target == 'e':
+        psi_hat_n = w_hat_n/k_squared_no_zero
+        psi_hat_n[0,0] = 0.0
+        psi_n = np.fft.irfft2(psi_hat_n).flatten()
+#        e_n = -0.5*psi_n*w_n
+#        return simps(simps(e_n, axis), axis)/(2*np.pi)**2
+        return np.dot(-psi_n, w_n)        
+    
+    #enstrophy (omega, omega)/2
+    elif target == 'z':
+#        z_n = 0.5*w_n**2
+#        return simps(simps(z_n, axis), axis)/(2*np.pi)**2
+        return np.dot(w_n, w_n)
+    #average vorticity (1, omega)
+    elif target == 'w1':
+        return simps(simps(w_n, axis), axis)/(2*np.pi)**2
+    #higher moment vorticity (omega^2, omega)/3
+    elif target == 'w3':
+        w3_n = w_n**3/3.0
+        return simps(simps(w3_n, axis), axis)/(2*np.pi)**2
+    else:
+        print(target, 'IS AN UNKNOWN QUANTITY OF INTEREST')
+        import sys; sys.exit()
+
+
+def get_qoi_int(w_hat_n, target):
+
+    """
+    compute the Quantity of Interest defined by the string target
+    """
+    
     w_n = np.fft.irfft2(w_hat_n)
     
     #energy (psi, omega)/2
@@ -292,7 +326,7 @@ def get_qoi(w_hat_n, target):
     else:
         print(target, 'IS AN UNKNOWN QUANTITY OF INTEREST')
         import sys; sys.exit()
-    
+
 def inner_products(V_hat):
 
     """
@@ -316,10 +350,11 @@ def compute_int(X1_hat, X2_hat):
     Compute integral using Simpsons rule
     """
     
-    X1 = np.fft.irfft2(X1_hat)
-    X2 = np.fft.irfft2(X2_hat)
+    X1 = np.fft.irfft2(X1_hat).flatten()
+    X2 = np.fft.irfft2(X2_hat).flatten()
     
-    return simps(simps(X1*X2, axis), axis)/(2*np.pi)**2
+    #return simps(simps(X1*X2, axis), axis)/(2*np.pi)**2
+    return np.dot(X1, X2)
 
 ###############################
 # END REDUCED SGS SUBROUTINES #
@@ -662,9 +697,9 @@ for n in range(n_steps):
     #exact orthogonal pattern surrogate
     if eddy_forcing_type == 'tau_ortho' or eddy_forcing_type == 'tau_ortho_ann':
         psi_hat_n_LF = get_psi_hat(w_hat_n_LF)
+        w_n_LF = np.fft.irfft2(w_hat_n_LF)
         
         if dW3_calc:
-            w_n_LF = np.fft.irfft2(w_hat_n_LF)
             w_hat_n_LF_squared = P_LF*np.fft.rfft2(w_n_LF**2)
 
         V_hat = np.zeros([N_Q, N, int(N/2+1)]) + 0.0j
@@ -712,8 +747,8 @@ for n in range(n_steps):
         
         T.append(t)
         
-        E_spec_HF, Z_spec_HF = spectrum(w_hat_n_HF, P_full)
-        E_spec_LF, Z_spec_LF = spectrum(w_hat_n_LF, P_LF_full)
+#        E_spec_HF, Z_spec_HF = spectrum(w_hat_n_HF, P_full)
+#        E_spec_LF, Z_spec_LF = spectrum(w_hat_n_LF, P_LF_full)
         
         draw()
         
