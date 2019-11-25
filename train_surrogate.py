@@ -2,12 +2,12 @@ def animate(s):
 
     I = 2
     for i in range(I):
-        lines[2*i].set_data(dom, kde[s, :, i]/np.max(kde[s, :, i]))
+        lines[2*i].set_data(dom[:, i], kde[s, :, i]/np.max(kde[s, :, i]))
         lines[2*i + 1].set_data(y_train[s, i], 0.0)
 
     return lines
 
-def compute_kde(dom, w):
+def compute_kde(dom, w, mu, sigma):
     
     K = norm.pdf(dom, mu, sigma)
     w = w.reshape([w.size, 1])
@@ -17,91 +17,44 @@ def compute_kde(dom, w):
 import numpy as np
 import matplotlib.pyplot as plt
 import easysurrogate as es
-import tkinter as tk
-from tkinter import filedialog
-import h5py
 from itertools import chain, product
 from scipy.stats import norm, rv_discrete
 from matplotlib.animation import FuncAnimation, writers
 
-root = tk.Tk()
-root.withdraw()
-file_path = filedialog.askopenfilename()
-
-h5f = h5py.File(file_path, 'r')
-print(h5f.keys())
-
-#names of features in hdf5 file to include
-feat_names = ['inner_prods', 'c_ij']
-
-#the number of samples, featutes must have shape n_samples, shape_sample
-n_samples = h5f[feat_names[0]].shape[0]
-
-#if symmetric is True (and the sample is a square array)
-#only the upper triangular part will be used a feature
-symmetric = [True, False]
-
-#temp array to store the features
-feats = []
-
-for i in range(len(feat_names)):
-    #convert h5f file to np array    
-    feat = h5f[feat_names[i]][()]
-    
-    #if symmetric only take upper triangular part
-    if symmetric[i]:
-        idx0, idx1 = np.triu_indices(feat.shape[1])
-        feat = feat[:, idx0, idx1]
-        
-    #the number of data points per sample = product of sample shape
-    n_in  = int(np.prod(feat.shape[1:]))
-    
-    #add feature to list in shape n_samples x n_in
-    feats.append(feat.reshape([n_samples, n_in]))
-    
-#concatenate all features into a single of shape n_samples x n_features
-X = np.concatenate(feats, axis=1)
-
-targets = ['dQ'] 
-                 
-"""
-X = np.zeros([n_samples, len(feats)])
-y = np.zeros([n_samples, len(targets)])
-
-for i in range(len(feats)):
-    X[:, i] = h5f[feats[i]][:]
-    
-for i in range(len(targets)):
-    y[:, i] = h5f[targets[i]]
-
-feat_eng = es.methods.Feature_Engineering(X, y)
-
+feat_eng = es.methods.Feature_Engineering(feat_names=['inner_prods'], 
+                                          target = 'dQ',
+                                          X_symmetry = [True])
 X, y = feat_eng.standardize_data()
-lags = [[1, 30]]
-X_train, y_train = feat_eng.lag_training_data(X, lags = lags)
+lags = [[1]]
+X_train, y_train = feat_eng.lag_training_data(feat_eng.X, lags = lags)
 
-n_softmax = len(targets)
+n_samples = y.shape[0]
+n_softmax = y.shape[1]
 n_bins = 20
 
-x_p = np.linspace(np.min(y_train), np.max(y_train), n_bins)
+mu = []; sigma = []; 
+for i in range(n_softmax):
+    
+    x_p = np.linspace(np.min(y_train[:, i]), np.max(y_train[:, i]), n_bins)
+    #rule of thumb bandwidth selection: https://en.wikipedia.org/wiki/Kernel_density_estimation#Bandwidth_selection
+    h = 1.06*np.std(y_train[:, i])*n_samples**(-0.2)
+    sigma_j = np.linspace(1.0*h, 10.0*h, 10)
+    
+    kernel_props = np.array(list(chain(product(x_p, sigma_j))))
+    K = kernel_props.shape[0]
+    mu.append(kernel_props[:, 0].reshape([K,1]))
+    sigma.append(kernel_props[:, 1].reshape([K,1]))
 
-#rule of thumb bandwidth selection: https://en.wikipedia.org/wiki/Kernel_density_estimation#Bandwidth_selection
-h = 1.06*np.std(y_train)*n_samples**(-0.2)
-sigma_j = np.linspace(1.0*h, 5.0*h, 5)
-
-kernel_props = np.array(list(chain(product(x_p, sigma_j))))
-
-mu = kernel_props[:, 0]
-sigma = kernel_props[:, 1]
-mu = mu.reshape([mu.size, 1])
-sigma = sigma.reshape([sigma.size, 1])
+#kernel_props = np.concatenate(kernel_props, axis=0)
 
 surrogate = es.methods.ANN(X=X_train, y=y_train, n_layers=3, n_neurons=256, 
                            n_out=kernel_props.shape[0]*n_softmax, loss='kvm', bias = True,
-                           activation='relu', activation_out='linear', n_softmax=n_softmax,
+                           activation='hard_tanh', activation_out='linear', n_softmax=n_softmax,
                            batch_size=512,
                            lamb=0.0, decay_step=10**4, decay_rate=0.9, alpha=0.001,
                            standardize_X=False, standardize_y=False, save=True,
+                           aux_vars = {'X_mean':feat_eng.X_mean, 'X_std':feat_eng.X_std,
+                                       'y_mean':feat_eng.y_mean, 'y_std':feat_eng.y_std},
                            kernel_means = mu, kernel_stds = sigma)
 surrogate.train(10000, store_loss = True)
 
@@ -111,7 +64,7 @@ if make_movie:
     
     n_kde = 100
     n_train = np.int(0.01*X_train.shape[0])
-    dom = np.linspace(np.min(y_train), np.max(y_train), n_kde)
+    dom = np.linspace(np.min(y_train, axis=0), np.max(y_train, axis=0), n_kde)
     n_feat = surrogate.n_in
     kde = np.zeros([X_train.shape[0], n_kde, n_softmax])    
     samples = np.zeros([n_train, n_softmax])
@@ -120,14 +73,14 @@ if make_movie:
         #w = surrogate.feed_forward(X_train[i].reshape([1, n_feat]))
         w, _, idx = surrogate.get_softmax(X_train[i].reshape([1, n_feat]))
         for j in range(n_softmax):
-            kde[i, :, j] = compute_kde(dom, w[j])
-            samples[i, j] = norm.rvs(mu[idx[j]], sigma[idx[j]])
+            kde[i, :, j] = compute_kde(dom[:,j], w[j], mu[j], sigma[j])
+            samples[i, j] = norm.rvs(mu[j][idx[j]], sigma[j][idx[j]])
         if np.mod(i, 1000) == 0:
             print('i =', i, 'of', n_train)
     
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    plt.xlim([dom[0], dom[-1]])
+    plt.xlim([np.min(dom), np.max(dom)])
     plt.yticks([])
     plt.xlabel(r'$y$')
        
@@ -147,4 +100,3 @@ if make_movie:
     Writer = writers['ffmpeg']
     writer = Writer(fps=15, bitrate=1800)
     anim.save('demo.mp4', writer = writer)
-"""

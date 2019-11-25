@@ -397,6 +397,8 @@ import json
 import easysurrogate as es
 from tkinter import filedialog
 import tkinter as tk
+from scipy.stats import norm
+from itertools import chain
 
 plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
@@ -502,9 +504,26 @@ print('*********************')
 
 dW3_calc = np.in1d('dW3', targets)
 
-if eddy_forcing_type == 'tau_ortho_ann':
+if eddy_forcing_type == 'tau_ortho':
     #load the SGS neural network
-    surrogate = es.methods.ANN(X = [], y = [], load = True)
+    surrogate = es.methods.ANN(X = np.random.rand(10,2), y = np.zeros(10))
+    surrogate.load_ANN()
+    X_mean = surrogate.aux_vars['X_mean']
+    X_std = surrogate.aux_vars['X_std']
+    y_mean = surrogate.aux_vars['y_mean']
+    y_std = surrogate.aux_vars['y_std']
+    kernel_means = surrogate.layers[-1].kernel_means
+    kernel_stds = surrogate.layers[-1].kernel_stds
+
+    #This is a repeat of train_surrogate.py: AUTOMIZE    
+    feat_eng = es.methods.Feature_Engineering(feat_names=['inner_prods'], 
+                                              target = 'dQ',
+                                              X_symmetry = [True])
+    feat_eng.standardize_data()
+    lags = [[1]]
+    X_train, y_train = feat_eng.lag_training_data(feat_eng.X, lags = lags)
+    
+    max_lag = np.max(list(chain(*lags)))
     
 #map from the rfft2 coefficient indices to fft2 coefficient indices
 #Use: see compute_E_Z subroutine
@@ -529,8 +548,8 @@ mu = 1.0/(day*decay_time_mu)
 
 #start, end time, end time of, time step
 dt = 0.01
-t = 0.0*day
-t_end = t + 15*day
+t = 500.0*day
+t_end = t + 50*day
 n_steps = np.int(np.round((t_end-t)/dt))
 
 #############
@@ -645,6 +664,9 @@ print('t_begin = ', t/day, 'days')
 print('t_end = ', t_end/day, 'days')
 print('*********************')
 
+#REMOVE:
+idx0, idx1 = np.triu_indices(2)
+
 #time loop
 for n in range(n_steps):
     
@@ -677,9 +699,20 @@ for n in range(n_steps):
                 Q_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
                 Q_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
                 dQ.append(Q_HF - Q_LF)
-#            elif eddy_forcing_type == 'tau_ortho_ann':
 
         EF_hat, c_ij, inner_prods, src_Q, tau = reduced_r(V_hat, dQ)        
+
+        feat_eng.append_feat(inner_prods[idx0, idx1], max_lag)
+
+        feat = inner_prods[idx0, idx1]
+        feat = (feat - X_mean)/X_std
+        _, _, idx = surrogate.get_softmax(feat.reshape([1,3]))
+        dQ_test = np.zeros(2)
+        
+        for i in range(2):
+            dQ_test[i] = norm.rvs(kernel_means[i][idx[i]], kernel_stds[i][idx[i]])
+            
+        dQ_test = dQ_test*y_std + y_mean
 
     #unparameterized solution
     elif eddy_forcing_type == 'unparam':
@@ -707,13 +740,15 @@ for n in range(n_steps):
             Q_i_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
             Q_i_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
         
-            plot_dict_LF[i].append(Q_i_LF)
-            plot_dict_HF[i].append(Q_i_HF)
+#            plot_dict_LF[i].append(Q_i_LF)
+#            plot_dict_HF[i].append(Q_i_HF)
+            plot_dict_LF[i].append(dQ_test[i])
+            plot_dict_HF[i].append(dQ[i])
         
         T.append(t)
         
-        E_spec_HF, Z_spec_HF = spectrum(w_hat_n_HF, P_full)
-        E_spec_LF, Z_spec_LF = spectrum(w_hat_n_LF, P_LF_full)
+#        E_spec_HF, Z_spec_HF = spectrum(w_hat_n_HF, P_full)
+#        E_spec_LF, Z_spec_LF = spectrum(w_hat_n_LF, P_LF_full)
         
         draw()
         
@@ -731,7 +766,7 @@ for n in range(n_steps):
 #            samples[qoi][idx] = eval(qoi)
             samples[qoi].append(eval(qoi))
 
-        idx += 1  
+#        idx += 1  
 
     #update variables
     if compute_ref == True: 
