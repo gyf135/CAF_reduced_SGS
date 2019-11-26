@@ -125,13 +125,20 @@ def draw():
     plt.clf()
 
     plt.subplot(121, title=r'$Q_1$', xlabel=r'$t\;[day]$')
-    plt.plot(np.array(T)/day, plot_dict_HF[0], 'o', label=r'Reference')
     plt.plot(np.array(T)/day, plot_dict_LF[0], label='Reduced')
+    plt.plot(np.array(T)/day, plot_dict_HF[0], 'o', label=r'Reference')
+    
+    T_int = np.array([T[0], T[-1]])/day
+    plt.plot(T_int, [e_std, e_std], '--k')
+    plt.plot(T_int, [-e_std, -e_std], '--k')
+    
     plt.legend(loc=0)
 
     plt.subplot(122, title=r'$Q_2$', xlabel=r'$t\;[day]$')
-    plt.plot(np.array(T)/day, plot_dict_HF[1], 'o')
     plt.plot(np.array(T)/day, plot_dict_LF[1])
+    plt.plot(np.array(T)/day, plot_dict_HF[1], 'o')
+    plt.plot(T_int, [z_std, z_std], '--k')
+    plt.plot(T_int, [-z_std, -z_std], '--k')
     
     plt.pause(0.05)
     
@@ -508,22 +515,32 @@ if eddy_forcing_type == 'tau_ortho':
     #load the SGS neural network
     surrogate = es.methods.ANN(X = np.random.rand(10,2), y = np.zeros(10))
     surrogate.load_ANN()
-    X_mean = surrogate.aux_vars['X_mean']
-    X_std = surrogate.aux_vars['X_std']
-    y_mean = surrogate.aux_vars['y_mean']
-    y_std = surrogate.aux_vars['y_std']
+#    X_mean = surrogate.aux_vars['X_mean']
+#    X_std = surrogate.aux_vars['X_std']
+#    y_mean = surrogate.aux_vars['y_mean']
+#    y_std = surrogate.aux_vars['y_std']
     kernel_means = surrogate.layers[-1].kernel_means
     kernel_stds = surrogate.layers[-1].kernel_stds
 
-    #This is a repeat of train_surrogate.py: AUTOMIZE    
+    #This is a repeat of train_surrogate.py: AUTOMATE
     feat_eng = es.methods.Feature_Engineering(feat_names=['inner_prods'], 
                                               target = 'dQ',
                                               X_symmetry = [True])
-    feat_eng.standardize_data()
-    lags = [[1]]
+#    feat_eng.standardize_data()
+    lags = [[1, 30]]
     X_train, y_train = feat_eng.lag_training_data(feat_eng.X, lags = lags)
     
+    X_mean = np.mean(X_train, axis=0)
+    X_std = np.std(X_train, axis=0)
+    y_mean = np.mean(y_train, axis=0)
+    y_std = np.std(y_train, axis=0)
+    
     max_lag = np.max(list(chain(*lags)))
+    
+    e_std = np.std(feat_eng.h5f['e_n_LF'][()])
+    z_std = np.std(feat_eng.h5f['z_n_LF'][()])
+    
+    n_feat = surrogate.n_in
     
 #map from the rfft2 coefficient indices to fft2 coefficient indices
 #Use: see compute_E_Z subroutine
@@ -543,13 +560,12 @@ decay_time_nu = 5.0
 decay_time_mu = 90.0
 nu = 1.0/(day*Ncutoff**2*decay_time_nu)
 nu_LF = 1.0/(day*Ncutoff**2*decay_time_nu)
-
 mu = 1.0/(day*decay_time_mu)
 
 #start, end time, end time of, time step
 dt = 0.01
 t = 500.0*day
-t_end = t + 50*day
+t_end = t + 250*day
 n_steps = np.int(np.round((t_end-t)/dt))
 
 #############
@@ -685,34 +701,47 @@ for n in range(n_steps):
     if eddy_forcing_type == 'tau_ortho' or eddy_forcing_type == 'tau_ortho_ann':
         psi_hat_n_LF = get_psi_hat(w_hat_n_LF)
         
+        #to calculate calculate (w^2, w)
         if dW3_calc:
             w_n_LF = np.fft.irfft2(w_hat_n_LF)
             w_hat_n_LF_squared = P_LF*np.fft.rfft2(w_n_LF**2)
 
+        #QoI basis functions V
         V_hat = np.zeros([N_Q, N, int(N/2+1)]) + 0.0j
        
         dQ = []
         for i in range(N_Q):
             V_hat[i] = P_i[i]*eval(V[i])
             
-            if eddy_forcing_type == 'tau_ortho':
+            if eddy_forcing_type == 'tau_ortho' or \
+               (eddy_forcing_type == 'tau_ortho_ann' and n < max_lag):
                 Q_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
                 Q_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
                 dQ.append(Q_HF - Q_LF)
 
+        if eddy_forcing_type == 'tau_ortho' and n >= max_lag:
+            
+            feat = feat_eng.get_feat_history()
+            feat = (feat - X_mean)/X_std
+            _, _, idx = surrogate.get_softmax(feat.reshape([1,n_feat]))
+            dQ_ann = np.zeros(2)
+            
+            for i in range(2):
+                dQ_ann[i] = norm.rvs(kernel_means[i][idx[i]], kernel_stds[i][idx[i]])
+            dQ_ann = dQ_ann*y_std + y_mean
+
+            for i in range(2):
+                plot_dict_LF[i].append(dQ_ann[i])
+                plot_dict_HF[i].append(dQ[i])
+            T.append(t)
+            
+            dQ = dQ_ann
+
+        #compute reduced eddy forcing
         EF_hat, c_ij, inner_prods, src_Q, tau = reduced_r(V_hat, dQ)        
 
+        #append the features of the neural net to feat_eng
         feat_eng.append_feat(inner_prods[idx0, idx1], max_lag)
-
-        feat = inner_prods[idx0, idx1]
-        feat = (feat - X_mean)/X_std
-        _, _, idx = surrogate.get_softmax(feat.reshape([1,3]))
-        dQ_test = np.zeros(2)
-        
-        for i in range(2):
-            dQ_test[i] = norm.rvs(kernel_means[i][idx[i]], kernel_stds[i][idx[i]])
-            
-        dQ_test = dQ_test*y_std + y_mean
 
     #unparameterized solution
     elif eddy_forcing_type == 'unparam':
@@ -736,17 +765,15 @@ for n in range(n_steps):
     if j == plot_frame_rate and plot == True:
         j = 0
 
-        for i in range(N_Q):
-            Q_i_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
-            Q_i_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
-        
+#        for i in range(N_Q):
+#            Q_i_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
+#            Q_i_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
+#        
 #            plot_dict_LF[i].append(Q_i_LF)
 #            plot_dict_HF[i].append(Q_i_HF)
-            plot_dict_LF[i].append(dQ_test[i])
-            plot_dict_HF[i].append(dQ[i])
-        
-        T.append(t)
-        
+#        
+#        T.append(t)
+#        
 #        E_spec_HF, Z_spec_HF = spectrum(w_hat_n_HF, P_full)
 #        E_spec_LF, Z_spec_LF = spectrum(w_hat_n_LF, P_LF_full)
         

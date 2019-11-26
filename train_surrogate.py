@@ -25,7 +25,7 @@ feat_eng = es.methods.Feature_Engineering(feat_names=['inner_prods'],
                                           target = 'dQ',
                                           X_symmetry = [True])
 X, y = feat_eng.standardize_data()
-lags = [[1]]
+lags = [[1, 30]]
 X_train, y_train = feat_eng.lag_training_data(feat_eng.X, lags = lags)
 
 n_samples = y.shape[0]
