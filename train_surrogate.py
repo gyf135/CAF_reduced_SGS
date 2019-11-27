@@ -28,8 +28,8 @@ X, y = feat_eng.standardize_data()
 lags = [[1, 30]]
 X_train, y_train = feat_eng.lag_training_data(feat_eng.X, lags = lags)
 
-n_samples = y.shape[0]
-n_softmax = y.shape[1]
+n_samples = y_train.shape[0]
+n_softmax = y_train.shape[1]
 n_bins = 20
 
 mu = []; sigma = []; 
@@ -53,8 +53,6 @@ surrogate = es.methods.ANN(X=X_train, y=y_train, n_layers=3, n_neurons=256,
                            batch_size=512,
                            lamb=0.0, decay_step=10**4, decay_rate=0.9, alpha=0.001,
                            standardize_X=False, standardize_y=False, save=True,
-                           aux_vars = {'X_mean':feat_eng.X_mean, 'X_std':feat_eng.X_std,
-                                       'y_mean':feat_eng.y_mean, 'y_std':feat_eng.y_std},
                            kernel_means = mu, kernel_stds = sigma)
 surrogate.train(10000, store_loss = True)
 

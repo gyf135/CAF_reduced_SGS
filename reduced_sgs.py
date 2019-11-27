@@ -128,17 +128,17 @@ def draw():
     plt.plot(np.array(T)/day, plot_dict_LF[0], label='Reduced')
     plt.plot(np.array(T)/day, plot_dict_HF[0], 'o', label=r'Reference')
     
-    T_int = np.array([T[0], T[-1]])/day
-    plt.plot(T_int, [e_std, e_std], '--k')
-    plt.plot(T_int, [-e_std, -e_std], '--k')
+#    T_int = np.array([T[0], T[-1]])/day
+#    plt.plot(T_int, [e_std, e_std], '--k')
+#    plt.plot(T_int, [-e_std, -e_std], '--k')
     
     plt.legend(loc=0)
 
     plt.subplot(122, title=r'$Q_2$', xlabel=r'$t\;[day]$')
     plt.plot(np.array(T)/day, plot_dict_LF[1])
     plt.plot(np.array(T)/day, plot_dict_HF[1], 'o')
-    plt.plot(T_int, [z_std, z_std], '--k')
-    plt.plot(T_int, [-z_std, -z_std], '--k')
+#    plt.plot(T_int, [z_std, z_std], '--k')
+#    plt.plot(T_int, [-z_std, -z_std], '--k')
     
     plt.pause(0.05)
     
@@ -150,6 +150,28 @@ def draw():
 #    plt.plot([np.sqrt(2)*Ncutoff_LF + 1, np.sqrt(2)*Ncutoff_LF + 1], [10, 0], 'lightgray')
 
     plt.tight_layout()
+    
+def down_scale(X_hat, N_high):
+
+    #2D grid
+    axis = np.linspace(0, 2.0*np.pi, N_high)
+    [x_high , y_high] = np.meshgrid(axis , axis)
+    
+    X = np.fft.irfft2(X_hat).flatten()
+    
+    points_high = np.zeros([N_high**2, 2])
+    points_high[:, 0] =  x_high.flatten()
+    points_high[:, 1] =  y_high.flatten()
+    
+    points_low = np.zeros([N**2, 2])
+    points_low[:, 0] = x.flatten()
+    points_low[:, 1] = y.flatten()
+    
+    X_low = griddata(points_high, X, points_low).reshape([N, N])
+    
+    plt.contourf(X_low)
+    
+    return P_LF*np.fft.rfft2(X_low)
 
 #################################
 # END MISCELLANEOUS SUBROUTINES #
@@ -406,6 +428,7 @@ from tkinter import filedialog
 import tkinter as tk
 from scipy.stats import norm
 from itertools import chain
+from scipy.interpolate import griddata
 
 plt.close('all')
 plt.rcParams['image.cmap'] = 'seismic'
@@ -426,8 +449,6 @@ N_LF = 2**(I-2)
 #are executed at the same time here.
 
 #2D grid
-h = 2*np.pi/N
-axis = h*np.arange(1, N+1)
 axis = np.linspace(0, 2.0*np.pi, N)
 [x , y] = np.meshgrid(axis , axis)
 
@@ -513,7 +534,7 @@ dW3_calc = np.in1d('dW3', targets)
 
 if eddy_forcing_type == 'tau_ortho':
     #load the SGS neural network
-    surrogate = es.methods.ANN(X = np.random.rand(10,2), y = np.zeros(10))
+    surrogate = es.methods.ANN(X = np.random.rand(10,2), y = np.ones(10))
     surrogate.load_ANN()
 #    X_mean = surrogate.aux_vars['X_mean']
 #    X_std = surrogate.aux_vars['X_std']
@@ -529,6 +550,7 @@ if eddy_forcing_type == 'tau_ortho':
 #    feat_eng.standardize_data()
     lags = [[1, 30]]
     X_train, y_train = feat_eng.lag_training_data(feat_eng.X, lags = lags)
+    n_samples = X_train.shape[0]
     
     X_mean = np.mean(X_train, axis=0)
     X_std = np.std(X_train, axis=0)
@@ -636,6 +658,11 @@ if restart == True:
         vars()[key] = h5f[key][:]
         
     h5f.close()
+    
+#    #down scaling operation
+#    w_hat_n_LF = down_scale(w_hat_n_LF, 256)
+#    w_hat_nm1_LF = down_scale(w_hat_nm1_LF, 256)
+#    VgradW_hat_nm1_LF = down_scale(VgradW_hat_nm1_LF, 256)
 
 else:
     
@@ -656,6 +683,7 @@ else:
     
     VgradW_hat_n_LF = compute_VgradW_hat(w_hat_n_LF, P_LF)
     VgradW_hat_nm1_LF = np.copy(VgradW_hat_n_LF)
+
 
 #constant factor that appears in AB/BDI2 time stepping scheme   
 norm_factor = 1.0/(3.0/(2.0*dt) - nu*k_squared + mu)        #for reference solution
@@ -715,13 +743,19 @@ for n in range(n_steps):
             
             if eddy_forcing_type == 'tau_ortho' or \
                (eddy_forcing_type == 'tau_ortho_ann' and n < max_lag):
-                Q_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
-                Q_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
-                dQ.append(Q_HF - Q_LF)
+#                Q_HF = get_qoi(P_i[i]*w_hat_n_HF, targets[i])
+#                Q_LF = get_qoi(P_i[i]*w_hat_n_LF, targets[i])
+#                dQ.append(Q_HF - Q_LF)
+                dQ = feat_eng.h5f['dQ'][n] 
 
         if eddy_forcing_type == 'tau_ortho' and n >= max_lag:
             
             feat = feat_eng.get_feat_history()
+
+            #this updates the mean used for feature normalization
+            X_mean, X_var = feat_eng.recursive_moments(feat, X_mean, X_std**2, n_samples+n)
+            X_std = np.sqrt(X_var)
+
             feat = (feat - X_mean)/X_std
             _, _, idx = surrogate.get_softmax(feat.reshape([1,n_feat]))
             dQ_ann = np.zeros(2)
@@ -730,12 +764,15 @@ for n in range(n_steps):
                 dQ_ann[i] = norm.rvs(kernel_means[i][idx[i]], kernel_stds[i][idx[i]])
             dQ_ann = dQ_ann*y_std + y_mean
 
+#            y_mean, y_var = feat_eng.recursive_moments(dQ_ann, y_mean, y_std**2)
+#            y_std = np.sqrt(y_var)
+
             for i in range(2):
                 plot_dict_LF[i].append(dQ_ann[i])
                 plot_dict_HF[i].append(dQ[i])
             T.append(t)
             
-            dQ = dQ_ann
+            #dQ = dQ_ann
 
         #compute reduced eddy forcing
         EF_hat, c_ij, inner_prods, src_Q, tau = reduced_r(V_hat, dQ)        
