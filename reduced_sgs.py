@@ -35,7 +35,7 @@ def compute_VgradW_hat(w_hat_n, P, kx, ky, k_squared_no_zero):
     return VgradW_hat_n
 
 #get Fourier coefficient of the vorticity at next (n+1) time step
-def get_w_hat_np1(w_hat_n, w_hat_nm1, VgradW_hat_nm1, P, norm_factor, kx, ky, k_squared_no_zero, sgs_hat = 0.0):
+def get_w_hat_np1(w_hat_n, w_hat_nm1, VgradW_hat_nm1, P, norm_factor, kx, ky, k_squared_no_zero, F_hat, sgs_hat = 0.0):
     
     #compute jacobian
     VgradW_hat_n = compute_VgradW_hat(w_hat_n, P, kx, ky, k_squared_no_zero)
@@ -100,20 +100,16 @@ def get_psi_hat(w_hat_n, k_squared_no_zero):
     return psi_hat_n
 
 def down_scale(X_hat):
-
-    #2D grid
-    axis = np.linspace(0, 2.0*np.pi, N)
-    [x_high , y_high] = np.meshgrid(axis , axis)
-    
+   
     X = np.fft.irfft2(X_hat).flatten()
     
     points_high = np.zeros([N**2, 2])
-    points_high[:, 0] =  x_high.flatten()
-    points_high[:, 1] =  y_high.flatten()
+    points_high[:, 0] =  x_HF.flatten()
+    points_high[:, 1] =  y_HF.flatten()
     
     points_low = np.zeros([N_LF**2, 2])
-    points_low[:, 0] = x.flatten()
-    points_low[:, 1] = y.flatten()
+    points_low[:, 0] = x_LF.flatten()
+    points_low[:, 1] = y_LF.flatten()
     
     X_low = griddata(points_high, X, points_low).reshape([N_LF, N_LF])
     
@@ -227,12 +223,12 @@ def reduced_r(V_hat, dQ):
             P_hat_i -= c_ij[i, j]*T_hat[i, j+1]
     
         #(V_i, P_i) integral
-        src_Qi = compute_int(V_hat[i], P_hat_i)
+        src_Q_i = compute_int(V_hat[i], P_hat_i, axis_LF)
         
         #compute tau_i = Delta Q_i/ (V_i, P_i)
-        tau_i = dQ[i]/src_Qi        
+        tau_i = dQ[i]/src_Q_i        
 
-        src_Q[i] = src_Qi
+        src_Q[i] = src_Q_i
         tau[i] = tau_i
 
         #compute reduced soure term
@@ -286,11 +282,11 @@ def compute_cij(T_hat, V_hat):
 
         for j1 in range(N_Q-1):
             for j2 in range(N_Q-1):
-                integral = compute_int(V_hat[k[j1]], T_hat[i, j2+1])
+                integral = compute_int(V_hat[k[j1]], T_hat[i, j2+1], axis_LF)
                 A[j1, j2] = integral
 
         for j1 in range(N_Q-1):
-            integral = compute_int(V_hat[k[j1]], T_hat[i, 0])
+            integral = compute_int(V_hat[k[j1]], T_hat[i, 0], axis_LF)
             b[j1] = integral
 
         if N_Q == 2:
@@ -300,7 +296,7 @@ def compute_cij(T_hat, V_hat):
             
     return c_ij
 
-def get_qoi(w_hat_n, k_squared_no_zero, target):
+def get_qoi(w_hat_n, k_squared_no_zero, target, axis):
 
     """
     compute the Quantity of Interest defined by the string target
@@ -340,14 +336,14 @@ def inner_products(V_hat):
     
     for i1 in range(N_Q):
         for i2 in range(i1, N_Q):
-            inner[i1, i2] = compute_int(V_hat[i1], V_hat[i2])
+            inner[i1, i2] = compute_int(V_hat[i1], V_hat[i2], axis_LF)
             
             if i1 != i2:
                 inner[i2, i1] = inner[i1, i2]
     
     return inner
     
-def compute_int(X1_hat, X2_hat):
+def compute_int(X1_hat, X2_hat, axis):
     
     """
     Compute integral using Simpsons rule
@@ -449,16 +445,12 @@ N = 2**I
 
 #number of gridpoints in 1D for low resolution model, denoted by _LF
 N_LF = 2**(I-2)
-#IMPORTANT: this is only used to computed the cutoff freq N_cutoff_LF below
-#The LF model is still computed on the high-resolution grid. This is
-#convenient implementationwise, but inefficient in terms of computational
-#cost. This script only serves as a proof of concept, and can certainly
-#be improved in terms of bringing down the runtime. The LF and HF model
-#are executed at the same time here.
 
 #2D grid
-axis = np.linspace(0, 2.0*np.pi, N_LF)
-[x , y] = np.meshgrid(axis , axis)
+axis_LF = np.linspace(0, 2.0*np.pi, N_LF)
+x_LF , y_LF = np.meshgrid(axis_LF, axis_LF)
+axis_HF = np.linspace(0, 2.0*np.pi, N)
+x_HF , y_HF = np.meshgrid(axis_HF, axis_HF)
 
 #cutoff in pseudospectral method
 Ncutoff = np.int(N/3)           #reference cutoff
@@ -472,10 +464,13 @@ P_LF, k_LF, kx_LF, ky_LF = get_P(Ncutoff_LF, N_LF)
 #P_full = get_P_full(Ncutoff, N)
 #P_LF_full = get_P_full(Ncutoff_LF, N_LF)
 
-#frequencies of fft2 (only used to compute the spectra)
 k_squared_LF = kx_LF**2 + ky_LF**2
 k_squared_no_zero_LF = np.copy(k_squared_LF)
 k_squared_no_zero_LF[0,0] = 1.0
+
+k_squared = k_x**2 + k_y**2
+k_squared_no_zero = np.copy(k_squared)
+k_squared_no_zero[0,0] = 1.0
 
 kx_full = np.zeros([N_LF, N_LF]) + 0.0j
 ky_full = np.zeros([N_LF, N_LF]) + 0.0j
@@ -595,7 +590,7 @@ store_ID = sim_ID
 ###############################
 
 #TRAINING DATA SET
-QoI = ['z_n_LF', 'e_n_LF', 'dQ', 'c_ij', 'inner_prods', 'src_Q', 'tau']
+QoI = ['Q_HF', 'Q_LF', 'dQ', 'c_ij', 'inner_prods', 'src_Q', 'tau']
 Q = len(QoI)
 
 #allocate memory
@@ -616,9 +611,11 @@ if store == True:
             samples[QoI[q]] = []
 
 #forcing term
-F = 2**1.5*np.cos(5*x)*np.cos(5*y);
-F_hat = np.fft.rfft2(F);
-F_hat_full = np.fft.fft2(F)
+F_LF = 2**1.5*np.cos(5*x_LF)*np.cos(5*y_LF);
+F_hat_LF = np.fft.rfft2(F_LF);
+
+F_HF = 2**1.5*np.cos(5*x_HF)*np.cos(5*y_HF);
+F_hat_HF = np.fft.rfft2(F_HF);
 
 #V_i for Q_i = (1, omega)
 V_hat_w1 = P_LF*np.fft.rfft2(np.ones([N_LF, N_LF]))
@@ -654,8 +651,8 @@ if restart == True:
 else:
     
     #initial condition
-    w = np.sin(4.0*x)*np.sin(4.0*y) + 0.4*np.cos(3.0*x)*np.cos(3.0*y) + \
-        0.3*np.cos(5.0*x)*np.cos(5.0*y) + 0.02*np.sin(x) + 0.02*np.cos(y)
+    w = np.sin(4.0*x_LF)*np.sin(4.0*y_LF) + 0.4*np.cos(3.0*x_LF)*np.cos(3.0*y_LF) + \
+        0.3*np.cos(5.0*x_LF)*np.cos(5.0*y_LF) + 0.02*np.sin(x_LF) + 0.02*np.cos(y_LF)
 
     #initial Fourier coefficients at time n and n-1
     w_hat_n_HF = P*np.fft.rfft2(w)
@@ -672,7 +669,7 @@ else:
     VgradW_hat_nm1_LF = np.copy(VgradW_hat_n_LF)
 
 #constant factor that appears in AB/BDI2 time stepping scheme   
-#norm_factor = 1.0/(3.0/(2.0*dt) - nu*k_squared + mu)        #for reference solution
+norm_factor = 1.0/(3.0/(2.0*dt) - nu*k_squared + mu)        #for reference solution
 norm_factor_LF = 1.0/(3.0/(2.0*dt) - nu_LF*k_squared_LF + mu)  #for Low-Fidelity (LF) or resolved solution
 
 #some counters
@@ -703,12 +700,16 @@ for n in range(n_steps):
     if np.mod(n, np.int(day/dt)) == 0:
         print('n =', n, 'of', n_steps)
 
-#    if compute_ref == True:
-#        
-#        #solve for next time step
-#        w_hat_np1_HF, VgradW_hat_n_HF = get_w_hat_np1(w_hat_n_HF, w_hat_nm1_HF, VgradW_hat_nm1_HF, P, norm_factor)
-#        
-#        #exact eddy forcing
+    if compute_ref == True:
+        
+        #solve for next time step
+        w_hat_np1_HF, VgradW_hat_n_HF = get_w_hat_np1(w_hat_n_HF, w_hat_nm1_HF, 
+                                                      VgradW_hat_nm1_HF, P, 
+                                                      norm_factor,
+                                                      k_x, k_y, k_squared_no_zero,
+                                                      F_hat_HF)
+        
+        #exact eddy forcing
 #        EF_hat_nm1_exact = P_LF*VgradW_hat_nm1_HF - VgradW_hat_nm1_LF 
   
     #exact orthogonal pattern surrogate
@@ -732,7 +733,7 @@ for n in range(n_steps):
             if eddy_forcing_type == 'tau_ortho' \
             or (eddy_forcing_type == 'tau_ortho_ann' and n < max_lag):
                 Q_HF[i] = data_eng.h5f[targets[i] + '_n_HF'][n]
-                Q_LF[i] = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, targets[i])
+                Q_LF[i] = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, targets[i], axis_LF)
             dQ = Q_HF - Q_LF
 
         if eddy_forcing_type == 'tau_ortho_ann' and n >= max_lag:
@@ -758,9 +759,9 @@ for n in range(n_steps):
     #unparameterized solution
     elif eddy_forcing_type == 'unparam':
         EF_hat = np.zeros([N_LF, int(N_LF/2+1)])
-    #exact, full-field eddy forcing
-    elif eddy_forcing_type == 'exact':
-        EF_hat = EF_hat_nm1_exact
+#    #exact, full-field eddy forcing
+#    elif eddy_forcing_type == 'exact':
+#        EF_hat = EF_hat_nm1_exact
     else:
         print('No valid eddy_forcing_type selected')
         sys.exit()
@@ -771,7 +772,7 @@ for n in range(n_steps):
                                                   VgradW_hat_nm1_LF, P_LF, 
                                                   norm_factor_LF, 
                                                   kx_LF, ky_LF, k_squared_no_zero_LF,
-                                                  EF_hat)
+                                                  F_hat_LF, EF_hat)
 
     t += dt
     j += 1
@@ -782,9 +783,7 @@ for n in range(n_steps):
         j = 0
 
         for i in range(N_Q):
-#            Q_i_LF = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, targets[i])
-#            Q_i_HF = data_eng.h5f[targets[i] + '_n_HF'][n]
-        
+       
             plot_dict_LF[i].append(Q_LF[i])
             plot_dict_HF[i].append(Q_HF[i])
         
@@ -799,22 +798,16 @@ for n in range(n_steps):
     if j2 == store_frame_rate and store == True:
         j2 = 0
 
-        #if targets[i] = 'e', this will generate variables e_n_LF and e_Z_n_LF
-        #to be stored in samples
-        for i in range(N_Q):
-            vars()[targets[i] + '_n_LF'] = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, targets[i])
-            vars()[targets[i] + '_n_HF'] = data_eng.h5f[targets[i] + '_n_HF'][n]
-        
         for qoi in QoI:
             samples[qoi].append(eval(qoi))
 
 #        idx += 1  
 
-#    #update variables
-#    if compute_ref == True: 
-#        w_hat_nm1_HF = np.copy(w_hat_n_HF)
-#        w_hat_n_HF = np.copy(w_hat_np1_HF)
-#        VgradW_hat_nm1_HF = np.copy(VgradW_hat_n_HF)
+    #update variables
+    if compute_ref == True: 
+        w_hat_nm1_HF = np.copy(w_hat_n_HF)
+        w_hat_n_HF = np.copy(w_hat_np1_HF)
+        VgradW_hat_nm1_HF = np.copy(VgradW_hat_n_HF)
 
     w_hat_nm1_LF = np.copy(w_hat_n_LF)
     w_hat_n_LF = np.copy(w_hat_np1_LF)
