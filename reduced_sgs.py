@@ -177,28 +177,6 @@ def draw():
 
     plt.tight_layout()
     
-def down_scale(X_hat, N_high):
-
-    #2D grid
-    axis = np.linspace(0, 2.0*np.pi, N_high)
-    [x_high , y_high] = np.meshgrid(axis , axis)
-    
-    X = np.fft.irfft2(X_hat).flatten()
-    
-    points_high = np.zeros([N_high**2, 2])
-    points_high[:, 0] =  x_high.flatten()
-    points_high[:, 1] =  y_high.flatten()
-    
-    points_low = np.zeros([N**2, 2])
-    points_low[:, 0] = x.flatten()
-    points_low[:, 1] = y.flatten()
-    
-    X_low = griddata(points_high, X, points_low).reshape([N, N])
-    
-    plt.contourf(X_low)
-    
-    return P_LF*np.fft.rfft2(X_low)
-
 #################################
 # END MISCELLANEOUS SUBROUTINES #
 #################################
@@ -469,7 +447,7 @@ N = 2**I
 N_LF = 2**(I-2)
 
 #2D grid
-xis_LF = np.linspace(0, 2.0*np.pi, N_LF)
+axis_LF = np.linspace(0, 2.0*np.pi, N_LF)
 x_LF , y_LF = np.meshgrid(axis_LF, axis_LF)
 axis_HF = np.linspace(0, 2.0*np.pi, N)
 x_HF , y_HF = np.meshgrid(axis_HF, axis_HF)
