@@ -3,7 +3,7 @@
 PYTHON SCRIPT ACCOMPANYING:
 
 W.EDELING, D. CROMMELIN, 
-"DERIVING REDUCED SUBGRID SCAKLE MODELS FROM DATA"
+"DERIVING REDUCED SUBGRID SCALE MODELS FROM DATA"
 SUBMITTED TO COMPUTERS & FLUIDS, 2019.
 ========================================================================
 """
@@ -322,6 +322,15 @@ def get_qoi(w_hat_n, k_squared_no_zero, target, axis):
     elif target == 'w3':
         w3_n = w_n**3/3.0
         return simps(simps(w3_n, axis), axis)/(2*np.pi)**2
+    #(psi, F)/2
+    elif target == 'u':
+        psi_hat_n = w_hat_n/k_squared_no_zero
+        psi_hat_n[0,0] = 0.0
+        psi_n = np.fft.irfft2(psi_hat_n)
+        return 0.5*simps(simps(psi_n*F_LF, axis), axis)/(2.0*np.pi)**2
+    #(w, F)/2
+    elif target == 'v':
+        return 0.5*simps(simps(w_n*F_LF, axis), axis)/(2.0*np.pi)**2
     else:
         print(target, 'IS AN UNKNOWN QUANTITY OF INTEREST')
         import sys; sys.exit()
@@ -456,8 +465,9 @@ x_HF , y_HF = np.meshgrid(axis_HF, axis_HF)
 Ncutoff = np.int(N/3)           #reference cutoff
 Ncutoff_LF = np.int(N_LF/3)     #cutoff of low resolution (LF) model
 
-#spectral filter
+#spectral filters
 P, k, k_x, k_y = get_P(Ncutoff, N)
+P_HF2LF, _, _, _ = get_P(Ncutoff_LF, N)
 P_LF, k_LF, kx_LF, ky_LF = get_P(Ncutoff_LF, N_LF)
 
 #spectral filter for the full FFT2 
@@ -524,25 +534,29 @@ print('*********************')
 
 dW3_calc = np.in1d('dW3', targets)
 
-data_eng = es.methods.Data_Engineering()
-
 if eddy_forcing_type == 'tau_ortho_ann':
-    #load the SGS neural network
-    surrogate = es.methods.ANN(X = np.random.rand(10,2), y = np.ones(10))
-    surrogate.load_ANN()
-    kernel_means = surrogate.layers[-1].kernel_means
-    kernel_stds = surrogate.layers[-1].kernel_stds
+
+    data_eng = es.methods.Data_Engineering()
+    h5f = data_eng.get_hdf5_file()
     
-#    feat_eng.standardize_data()
-    lags = [[1, 30]]
-    X_train, y_train = data_eng.lag_training_data(feat_eng.X, lags = lags)
+    data_eng.set_training_data(feats = ['inner_prods', 'src_Q', 'u_n_LF', 'v_n_LF'],
+                               targets = ['dQ'], X_symmetry=[True, False, False, False])
+    data_eng.standardize_data()
     
+    lags = [[1, 1500]]
+    X_train, y_train = data_eng.set_lagged_training_data(data_eng.X, lags = lags)    
+
     X_mean = np.mean(X_train, axis=0)
     X_std = np.std(X_train, axis=0)
     y_mean = np.mean(y_train, axis=0)
     y_std = np.std(y_train, axis=0)
     
     max_lag = np.max(list(chain(*lags)))
+    
+    surrogate = es.methods.ANN(X = X_train, y = y_train)
+    surrogate.load_ANN()
+    kernel_means = surrogate.layers[-1].kernel_means
+    kernel_stds = surrogate.layers[-1].kernel_stds
     
     n_feat = surrogate.n_in
     
@@ -590,7 +604,8 @@ store_ID = sim_ID
 ###############################
 
 #TRAINING DATA SET
-QoI = ['Q_HF', 'Q_LF', 'dQ', 'c_ij', 'inner_prods', 'src_Q', 'tau']
+QoI = ['Q_HF', 'Q_LF', 'dQ', 'c_ij', 'inner_prods', 'src_Q', 
+       'tau', 'u_n_LF', 'v_n_LF']
 Q = len(QoI)
 
 #allocate memory
@@ -668,7 +683,6 @@ else:
     VgradW_hat_n_LF = compute_VgradW_hat(w_hat_n_LF, P_LF)
     VgradW_hat_nm1_LF = np.copy(VgradW_hat_n_LF)
 
-
 #constant factor that appears in AB/BDI2 time stepping scheme   
 norm_factor = 1.0/(3.0/(2.0*dt) - nu*k_squared + mu)        #for reference solution
 norm_factor_LF = 1.0/(3.0/(2.0*dt) - nu_LF*k_squared_LF + mu)  #for Low-Fidelity (LF) or resolved solution
@@ -733,29 +747,37 @@ for n in range(n_steps):
             
             if eddy_forcing_type == 'tau_ortho' \
             or (eddy_forcing_type == 'tau_ortho_ann' and n < max_lag):
-                Q_HF[i] = data_eng.h5f[targets[i] + '_n_HF'][n]
+#                Q_HF[i] = data_eng.h5f[targets[i] + '_n_HF'][n]
+                if compute_ref == True:
+                    Q_HF[i] = get_qoi(P_HF2LF*w_hat_n_HF, k_squared_no_zero, targets[i], axis_HF)
+                else:
+                    Q_HF[i] = h5f['Q_HF'][n][i]
                 Q_LF[i] = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, targets[i], axis_LF)
             dQ = Q_HF - Q_LF
 
         if eddy_forcing_type == 'tau_ortho_ann' and n >= max_lag:
             
             feat = data_eng.get_feat_history()
-            feat = (feat - X_mean)/X_std
-            _, _, idx = surrogate.get_softmax(feat.reshape([1,n_feat]))
-            dQ_ann = np.zeros(2)
+#            X_mean, X_var = data_eng.recursive_moments(feat, X_mean, X_std**2, n_samples+n)
+#            X_std = X_var**0.5
+#            feat = (feat - X_mean)/X_std
+            _, idx_max, idx = surrogate.get_softmax(feat.reshape([1,n_feat]))
+            Q_ann = np.zeros(2)
             
             for i in range(2):
-                dQ_ann[i] = norm.rvs(kernel_means[i][idx[i]], kernel_stds[i][idx[i]])
-            dQ_ann = dQ_ann*y_std + y_mean
-            
-            #dQ = dQ_ann
+                Q_ann[i] = norm.rvs(kernel_means[i][idx[i]], kernel_stds[i][idx[i]])
+                Q_LF[i] = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, targets[i], axis_LF)
+
+#            dQ_ann = dQ_ann*y_std + y_mean
+
+            dQ = Q_ann - Q_LF
 
         #compute reduced eddy forcing
         EF_hat, c_ij, inner_prods, src_Q, tau = reduced_r(V_hat, dQ)        
 
-        #append the features of the neural net to feat_eng
+        #append the features of the neural net to data_eng
         if eddy_forcing_type == 'tau_ortho_ann':
-            data_eng.append_feat(inner_prods[idx_triu_0, idx_triu_1], max_lag)
+            data_eng.append_feat([inner_prods[idx_triu_0, idx_triu_1], c_ij.flatten()], max_lag)
 
     #unparameterized solution
     elif eddy_forcing_type == 'unparam':
@@ -779,12 +801,11 @@ for n in range(n_steps):
     j += 1
     j2 += 1    
     
-    #plot solution every plot_frame_rate. Requires drawnow() package
+    #plot solution every plot_frame_rate. 
     if j == plot_frame_rate and plot == True:
         j = 0
 
-        for i in range(N_Q):
-       
+        for i in range(N_Q):       
             plot_dict_LF[i].append(Q_LF[i])
             plot_dict_HF[i].append(Q_HF[i])
         
@@ -798,6 +819,9 @@ for n in range(n_steps):
     #store samples to dict
     if j2 == store_frame_rate and store == True:
         j2 = 0
+
+        u_n_LF = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, 'u', axis_LF)
+        v_n_LF = get_qoi(P_i[i]*w_hat_n_LF, k_squared_no_zero_LF, 'v', axis_LF)
 
         for qoi in QoI:
             samples[qoi].append(eval(qoi))
