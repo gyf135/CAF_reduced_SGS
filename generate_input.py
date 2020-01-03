@@ -41,12 +41,13 @@ fp.write('%s' %description + '\n')
 #simulation flags
 flags = {}
 flags['sim_ID'] = input_file
-flags['state_store'] = True                #store the state at the end of the simulation
-flags['restart'] = True                    #restart from previously stored state
-flags['store'] = True                     #store data
-flags['plot'] = False                      #plot results while running (required drawnow package)
+flags['state_store'] = False                #store the state at the end of the simulation
+flags['restart'] = False                    #restart from previously stored state
+flags['store'] = False                     #store data
+flags['plot'] = True                      #plot results while running (required drawnow package)
 flags['compute_ref'] = True                #compute the reference solution as well, leave at True, will automatically turn off in surrogate mode
 flags['eddy_forcing_type'] = 'tau_ortho'   
+flags['filter_type'] = 'standard'
 
 json.dump(flags, fp)
 fp.write('\n')
