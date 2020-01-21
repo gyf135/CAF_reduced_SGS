@@ -3,7 +3,8 @@
 PYTHON SCRIPT ACCOMPANYING:
 
 W.EDELING, D. CROMMELIN, 
-"DERIVING REDUCED SUBGRID SCALE MODELS FROM DATA"
+"Reducing data-driven dynamical subgrid scale models
+by physical constraints"
 COMPUTERS & FLUIDS, 2019.
 ========================================================================
 """
@@ -19,11 +20,11 @@ def compute_VgradW_hat(w_hat_n, P, kx, ky, k_squared_no_zero):
     psi_hat_n[0,0] = 0.0
     
     #compute jacobian in physical space
-    u_n = np.fft.ifft2(-ky*psi_hat_n)
-    w_x_n = np.fft.ifft2(kx*w_hat_n)
+    u_n = np.fft.ifft2(-ky*psi_hat_n).real
+    w_x_n = np.fft.ifft2(kx*w_hat_n).real
 
-    v_n = np.fft.ifft2(kx*psi_hat_n)
-    w_y_n = np.fft.ifft2(ky*w_hat_n)
+    v_n = np.fft.ifft2(kx*psi_hat_n).real
+    w_y_n = np.fft.ifft2(ky*w_hat_n).real
     
     VgradW_n = u_n*w_x_n + v_n*w_y_n
     
@@ -190,6 +191,7 @@ def reduced_r(V_hat, dQ):
 
     #compute the coefficients c_ij
     inner_prods = inner_products(V_hat, N_LF)
+
     c_ij = compute_cij_using_V_hat(V_hat, inner_prods)
 
     EF_hat = 0.0
@@ -480,7 +482,7 @@ mu = 1.0/(day*decay_time_mu)
 #start, end time, end time of, time step
 dt = 0.01
 t = 0.0*day
-t_end = t + 50*day
+t_end = t + 10*365*day
 n_steps = np.int(np.round((t_end-t)/dt))
 
 #############
