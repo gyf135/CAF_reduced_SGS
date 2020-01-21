@@ -3,7 +3,8 @@
 PYTHON SCRIPT ACCOMPANYING:
 
 W.EDELING, D. CROMMELIN, 
-"DERIVING REDUCED SUBGRID SCAKLE MODELS FROM DATA"
+"Reducing data-driven dynamical subgrid scale models
+by physical constraints"
 SUBMITTED TO COMPUTERS & FLUIDS, 2019.
 ========================================================================
 """
